@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>HLS 直播播放器</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            background-color: #000;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            flex-direction: column;
+        }
+        video {
+            width: 80%;
+            max-width: 960px;
+            background-color: #000;
+            outline: none;
+        }
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+<h1>HLS 直播播放</h1>
+<video id="video" controls autoplay></video>
+
+<!-- hls.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script>
+    const uuid = crypto.randomUUID();
+    // var uuid = 'c91b431e-ba21-47c9-8649-a05ce2490838'
+    console.log(uuid);
+
+    const video = document.getElementById('video');
+    const streamUrl = 'http://127.0.0.1:8080/live/hls/test-hls/' + uuid + '/index.m3u8'; // 改成你的 HLS 地址
+
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari、iOS 原生支持
+        video.src = streamUrl;
+    } else if (Hls.isSupported()) {
+        // 其他浏览器用 hls.js
+        const hls = new Hls();
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            console.log('HLS manifest loaded, starting playback...');
+            video.play();
+        });
+        hls.on(Hls.Events.ERROR, function (event, data) {
+            console.error('HLS.js error', data);
+        });
+    } else {
+        alert('您的浏览器不支持 HLS 播放，请使用 Safari 或支持 MSE 的现代浏览器');
+    }
+</script>
+</body>
+</html>

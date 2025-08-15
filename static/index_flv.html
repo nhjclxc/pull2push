@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>FLV.js 播放示例</title>
+    <script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
+</head>
+<body>
+<video id="videoElement" controls width="640" height="360"></video>
+
+<script>
+    if (flvjs.isSupported()) {
+        const uuid = crypto.randomUUID();
+        console.log(uuid);
+        // 例子: "3b241101-e2bb-4255-8caf-4136c566a962"
+
+        var url = 'http://localhost:8080/api/live/flv/test-flv/' + uuid
+
+
+        var videoElement = document.getElementById('videoElement');
+        var flvPlayer = flvjs.createPlayer({
+            type: 'flv',
+            url: url,  // 你的 Go 转推接口地址
+            isLive: true,
+            // 如果没有音频可设 hasAudio:false
+            hasAudio: true,
+            hasVideo: true
+        });
+        flvPlayer.attachMediaElement(videoElement);
+        flvPlayer.load();
+        flvPlayer.play().catch(e => console.warn('play error', e));
+    } else {
+        alert('浏览器不支持 FLV.js 播放');
+    }
+</script>
+</body>
+</html>

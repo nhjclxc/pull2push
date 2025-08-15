@@ -4,8 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"pull2push/api"
 	"pull2push/api/base"
 	"pull2push/config"
+	cameraBroadcast "pull2push/core/broadcast/camera"
+	flvBroadcast "pull2push/core/broadcast/flv"
+	cameraBroker "pull2push/core/broker/camera"
+	flvBroker "pull2push/core/broker/flv"
 	"pull2push/event"
 	"pull2push/logger"
 	"pull2push/middleware"
@@ -27,6 +32,9 @@ type HTTPService struct {
 	shutdownCh     chan struct{}      // 关闭通道
 	eventHandlers  []chan event.Event // 用于跟踪所有事件处理 goroutine
 	mu             sync.Mutex         // 保护 eventHandlers
+
+	cameraBrokerPool *cameraBroker.CameraBroker
+	flvBrokerPool    *flvBroker.FLVBroker
 }
 
 // NewHTTPService 创建 HTTP 服务
@@ -46,9 +54,12 @@ func NewHTTPService(res *resource.Resource) *HTTPService {
 	}))
 
 	service := &HTTPService{
-		engine:    engine,
-		config:    res.Config,
-		resources: res,
+		engine:           engine,
+		config:           res.Config,
+		resources:        res,
+		baseController:   base.NewBaseController(res),
+		cameraBrokerPool: cameraBroker.NewCameraBroker(),
+		flvBrokerPool:    flvBroker.NewFLVBroker(),
 	}
 	return service
 }
@@ -90,19 +101,47 @@ func (s *HTTPService) setupRoutes() {
 
 	s.engine.GET("/api/ping", func(c *gin.Context) { c.JSON(http.StatusOK, "pong") })
 
-	flvPull2pushRouter := s.engine.Group("/api/pull2push/flv")
+	flvPull2pushRouter := s.engine.Group("/api/live/flv")
 	{
+
+		flvBroadcasterKey := "test-flv"
+		flvUpstreamURL := "http://192.168.203.182:8080/live/livestream.flv"
+
+		testFlvBroadcast := flvBroadcast.NewFLVBroadcaster(flvBroadcasterKey, flvUpstreamURL)
+		s.flvBrokerPool.AddBroadcaster(flvBroadcasterKey, testFlvBroadcast)
 		_ = flvPull2pushRouter
+
+		flvController := api.NewFLVController(s.baseController, s.flvBrokerPool)
+
+		// 使用ffmpeg推流：ffmpeg -re -i demo.flv -c copy -f flv rtmp://192.168.203.182/live/livestream
+
+		// http://localhost:8080/api/live/flv/test-flv/729119c9-0711-4ef8-b60e-6c2dca5b1a11
+		// http://localhost:8080/api/live/flv/test-flv/123
+		flvPull2pushRouter.GET("/:broadcasterKey/:clientId", flvController.LiveFlv)
 	}
 
-	hlsPull2pushRouter := s.engine.Group("/api/pull2push/hls")
+	hlsPull2pushRouter := s.engine.Group("/api/live/hls")
 	{
 		_ = hlsPull2pushRouter
 	}
 
-	cameraPull2pushRouter := s.engine.Group("/api/pull2push/camera")
+	cameraPull2pushRouter := s.engine.Group("/api/live/camera")
 	{
-		_ = cameraPull2pushRouter
+
+		broadcasterKey := "test-camera"
+		testCameraCameraBroadcast := cameraBroadcast.NewCameraBroadcaster(broadcasterKey, 150)
+		s.cameraBrokerPool.AddBroadcaster(broadcasterKey, testCameraCameraBroadcast)
+
+		cameraController := api.NewCameraController(s.baseController, s.cameraBrokerPool)
+
+		// ffmpeg -f avfoundation -framerate 30 -video_size 640x480 -i "0:0" -vcodec libx264 -preset veryfast -tune zerolatency -g 30 -acodec aac -ar 44100 -ac 2 -f flv "http://127.0.0.1:8080/api/live/camera/ingest/test-camera"
+		// http://127.0.0.1:8080/api/live/camera/ingest/test-camera
+		// 摄像头推流
+		cameraPull2pushRouter.POST("/ingest/:broadcasterKey", cameraController.ExecutePush)
+
+		// http://127.0.0.1:8080/api/live/camera/test-camera/123
+		// 客户端拉流
+		cameraPull2pushRouter.GET("/:broadcasterKey/:clientId", cameraController.ExecutePull)
 	}
 
 }
