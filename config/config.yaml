@@ -1,0 +1,20 @@
+common:
+  log:
+    level: "debug"
+    file_path: "./data/log/log.log"  # "stdout"
+    max_size: 100
+    max_backups: 3
+  debug: true
+
+
+http:
+  port: "8080"
+
+
+live:
+  flvPort: 8080
+  hlsPort: 8080
+  rtmpPort: 8080
+  cameraPort: 8080
+
+
