@@ -9,8 +9,10 @@ import (
 	"pull2push/config"
 	cameraBroadcast "pull2push/core/broadcast/camera"
 	flvBroadcast "pull2push/core/broadcast/flv"
+	hlsBroadcast "pull2push/core/broadcast/hls"
 	cameraBroker "pull2push/core/broker/camera"
 	flvBroker "pull2push/core/broker/flv"
+	hlsBroker "pull2push/core/broker/hls"
 	"pull2push/event"
 	"pull2push/logger"
 	"pull2push/middleware"
@@ -35,6 +37,7 @@ type HTTPService struct {
 
 	cameraBrokerPool *cameraBroker.CameraBroker
 	flvBrokerPool    *flvBroker.FLVBroker
+	hlsBrokerPool    *hlsBroker.HLSBroker
 }
 
 // NewHTTPService 创建 HTTP 服务
@@ -60,6 +63,7 @@ func NewHTTPService(res *resource.Resource) *HTTPService {
 		baseController:   base.NewBaseController(res),
 		cameraBrokerPool: cameraBroker.NewCameraBroker(),
 		flvBrokerPool:    flvBroker.NewFLVBroker(),
+		hlsBrokerPool:    hlsBroker.NewHLSBroker(),
 	}
 	return service
 }
@@ -101,6 +105,21 @@ func (s *HTTPService) setupRoutes() {
 
 	s.engine.GET("/api/ping", func(c *gin.Context) { c.JSON(http.StatusOK, "pong") })
 
+	/*
+	   使用ffmpeg推流：ffmpeg -re -i demo.flv -c copy -f flv rtmp://192.168.203.182/live/livestream
+
+	   拉流
+	   ● RTMP (by VLC): rtmp://192.168.203.182/live/livestream
+	   ● H5(HTTP-FLV): http://192.168.203.182:8080/live/livestream.flv
+	   ● H5(HLS): http://192.168.203.182:8080/live/livestream.m3u8
+
+	   	ffmpeg -re -i demo.flv \
+	   	    -c:v libx264 -preset veryfast -tune zerolatency \
+	   	    -g 25 -keyint_min 25 \
+	   	    -c:a aac -ar 44100 -b:a 128k \
+	   	    -f flv rtmp://192.168.203.182/live/livestream
+	*/
+
 	flvPull2pushRouter := s.engine.Group("/api/live/flv")
 	{
 
@@ -115,6 +134,8 @@ func (s *HTTPService) setupRoutes() {
 
 		// 使用ffmpeg推流：ffmpeg -re -i demo.flv -c copy -f flv rtmp://192.168.203.182/live/livestream
 
+		// flv启动顺序：1、go服务器，2、前端页面，3、使用ffmpeg推流
+
 		// http://localhost:8080/api/live/flv/test-flv/729119c9-0711-4ef8-b60e-6c2dca5b1a11
 		// http://localhost:8080/api/live/flv/test-flv/123
 		flvPull2pushRouter.GET("/:broadcasterKey/:clientId", flvController.LiveFlv)
@@ -122,7 +143,26 @@ func (s *HTTPService) setupRoutes() {
 
 	hlsPull2pushRouter := s.engine.Group("/api/live/hls")
 	{
-		_ = hlsPull2pushRouter
+
+		ctx, _ := context.WithCancel(context.Background())
+		//defer cancel()
+
+		hlsBroadcastKey := "test-hls"
+		hlsUpstreamURL := "http://192.168.203.182:8080/live/livestream.m3u8"
+
+		var hlsBroadcastTemp *hlsBroadcast.HLSBroadcaster = hlsBroadcast.NewHLSBroadcaster(ctx, hlsBroadcastKey, hlsUpstreamURL, "", 3)
+		s.hlsBrokerPool.AddBroadcaster(hlsBroadcastKey, hlsBroadcastTemp)
+
+		hlsController := api.NewHLSController(s.baseController, s.hlsBrokerPool)
+
+		// hls启动顺序：1、使用ffmpeg推流，2、go服务器，3、前端页面
+		// 使用ffmpeg推流：ffmpeg -re -i demo.flv -c copy -f flv rtmp://192.168.203.182/live/livestream
+
+		// hls要提供两个接口，一个是 index.m3u8用于客户端第一次调用的时候获取最新数据分片消息的，有助于第二个接口来获取最新的分片数据
+		// 一个是 类似 2689.ts 的接口，用于给客户端请求具体的流数据
+		// http://localhost:8080/live/hls/:brokerKey/:clientId/index.m3u8
+		// http://localhost:8080/live/hls/:brokerKey/:clientId/2689.ts
+		hlsPull2pushRouter.GET("/:broadcasterKey/:clientId/*filepath", hlsController.LiveHLS)
 	}
 
 	cameraPull2pushRouter := s.engine.Group("/api/live/camera")
@@ -133,6 +173,8 @@ func (s *HTTPService) setupRoutes() {
 		s.cameraBrokerPool.AddBroadcaster(broadcasterKey, testCameraCameraBroadcast)
 
 		cameraController := api.NewCameraController(s.baseController, s.cameraBrokerPool)
+
+		// camera启动顺序：1、go服务器，2、前端页面，3、使用ffmpeg推流
 
 		// ffmpeg -f avfoundation -framerate 30 -video_size 640x480 -i "0:0" -vcodec libx264 -preset veryfast -tune zerolatency -g 30 -acodec aac -ar 44100 -ac 2 -f flv "http://127.0.0.1:8080/api/live/camera/ingest/test-camera"
 		// http://127.0.0.1:8080/api/live/camera/ingest/test-camera

@@ -39,7 +39,7 @@
     console.log(uuid);
 
     const video = document.getElementById('video');
-    const streamUrl = 'http://127.0.0.1:8080/live/hls/test-hls/' + uuid + '/index.m3u8'; // 改成你的 HLS 地址
+    const streamUrl = 'http://127.0.0.1:8080/api/live/hls/test-hls/' + uuid + '/index.m3u8'; // 改成你的 HLS 地址
 
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
         // Safari、iOS 原生支持

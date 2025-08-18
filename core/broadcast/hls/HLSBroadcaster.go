@@ -40,15 +40,15 @@ import (
 // HLSBroadcaster 每个 直播地址 用一个 Broker 管理，里面管理了多个当前直播链接的客户端
 type HLSBroadcaster struct {
 	// 直播数据相关
-	BrokerKey    string       // 直播房间的唯一编号
-	upstreamURL  string       // 直播房间的上游拉流地址
-	Variant      string       // 可选：固定选择带宽 id/分辨率（留空自动选最优）
-	StreamState0 *StreamState // m3u8数据分片处理器
+	BroadcasterKey string       // 直播房间的唯一编号
+	upstreamURL    string       // 直播房间的上游拉流地址
+	Variant        string       // 可选：固定选择带宽 id/分辨率（留空自动选最优）
+	StreamState0   *StreamState // m3u8数据分片处理器
 
 	// 状态控制相关
-	BrokerCloseSig chan struct{} // 控制当前这个直播是否被关闭
-	once           sync.Once
-	ctx            context.Context
+	BroadcasterCloseSig chan broadcast.BROADCAST_CLOSE_TYPE // 控制当前这个直播是否被关闭
+	once                sync.Once
+	ctx                 context.Context
 
 	// 客户端相关
 	clientMutex    sync.Mutex                   // 客户端的异步操作控制器
@@ -57,19 +57,19 @@ type HLSBroadcaster struct {
 
 }
 
-func NewHLSBroadcaster(ctx context.Context, brokerKey, upstreamURL, variant string, buffer int) *HLSBroadcaster {
+func NewHLSBroadcaster(ctx context.Context, broadcasterKey, upstreamURL, variant string, buffer int) *HLSBroadcaster {
 	if buffer == 0 {
 		buffer = 3
 	}
 	hmb := HLSBroadcaster{
-		BrokerKey:      brokerKey,
-		upstreamURL:    upstreamURL,
-		Variant:        variant,
-		StreamState0:   NewStreamState(buffer),
-		clientMap:      make(map[string]client.LiveClient),
-		ctx:            ctx,
-		BrokerCloseSig: make(chan struct{}),
-		ClientCloseSig: make(chan string),
+		BroadcasterKey:      broadcasterKey,
+		upstreamURL:         upstreamURL,
+		Variant:             variant,
+		StreamState0:        NewStreamState(buffer),
+		clientMap:           make(map[string]client.LiveClient),
+		ctx:                 ctx,
+		BroadcasterCloseSig: make(chan broadcast.BROADCAST_CLOSE_TYPE),
+		ClientCloseSig:      make(chan string),
 	}
 
 	// 开始持续拉流
@@ -179,7 +179,7 @@ func (hb *HLSBroadcaster) PullLoop(bo broadcast.BroadcasterOptional) {
 			下载的分片保持原样字节，不做解码重封装，性能好且稳定。
 	*/
 
-	log.Printf("[pull:%s] start from %s", hb.BrokerKey, hb.upstreamURL)
+	log.Printf("[pull:%s] start from %s", hb.BroadcasterKey, hb.upstreamURL)
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	stream := hb.StreamState0
@@ -189,25 +189,25 @@ func (hb *HLSBroadcaster) PullLoop(bo broadcast.BroadcasterOptional) {
 	// 初次处理 master/ media
 	p, _, err := hb.fetchOnce(hb.ctx, client, hb.upstreamURL)
 	if err != nil {
-		log.Printf("[pull:%s] fetch master/media failed: %v", hb.BrokerKey, err)
+		log.Printf("[pull:%s] fetch master/media failed: %v", hb.BroadcasterKey, err)
 		return
 	}
 	if mp, ok := p.(*m3u8.MasterPlaylist); ok {
 		v, err := pickVariant(mp, hb.Variant)
 		if err != nil {
-			log.Printf("[pull:%s] no variant: %v", hb.BrokerKey, err)
+			log.Printf("[pull:%s] no variant: %v", hb.BroadcasterKey, err)
 			return
 		}
 		mediaURL, err = resolveURL(hb.upstreamURL, v.URI)
 		if err != nil {
-			log.Printf("[pull:%s] resolve media url: %v", hb.BrokerKey, err)
+			log.Printf("[pull:%s] resolve media url: %v", hb.BroadcasterKey, err)
 			return
 		}
-		log.Printf("[pull:%s] choose variant bw=%d res=%s uri=%s", hb.BrokerKey, v.Bandwidth, v.Resolution, mediaURL)
+		log.Printf("[pull:%s] choose variant bw=%d res=%s uri=%s", hb.BroadcasterKey, v.Bandwidth, v.Resolution, mediaURL)
 	} else if _, ok := p.(*m3u8.MediaPlaylist); ok {
 		mediaURL = hb.upstreamURL
 	} else {
-		log.Printf("[pull:%s] unknown playlist type", hb.BrokerKey)
+		log.Printf("[pull:%s] unknown playlist type", hb.BroadcasterKey)
 		return
 	}
 
@@ -218,17 +218,17 @@ func (hb *HLSBroadcaster) PullLoop(bo broadcast.BroadcasterOptional) {
 	for {
 		select {
 		case <-hb.ctx.Done():
-			log.Printf("[pull:%s] stop", hb.BrokerKey)
+			log.Printf("[pull:%s] stop", hb.BroadcasterKey)
 			return
 		case <-ticker.C:
 			p, _, err := hb.fetchOnce(hb.ctx, client, mediaURL)
 			if err != nil {
-				log.Printf("[pull:%s] fetch media: %v", hb.BrokerKey, err)
+				log.Printf("[pull:%s] fetch media: %v", hb.BroadcasterKey, err)
 				continue
 			}
 			mp, ok := p.(*m3u8.MediaPlaylist)
 			if !ok {
-				log.Printf("[pull:%s] not media playlist", hb.BrokerKey)
+				log.Printf("[pull:%s] not media playlist", hb.BroadcasterKey)
 				continue
 			}
 
@@ -264,7 +264,7 @@ func (hb *HLSBroadcaster) PullLoop(bo broadcast.BroadcasterOptional) {
 
 				data, err := hb.download(hb.ctx, client, absURI)
 				if err != nil {
-					log.Printf("[pull:%s] seg dl: %v", hb.BrokerKey, err)
+					log.Printf("[pull:%s] seg dl: %v", hb.BroadcasterKey, err)
 					continue
 				}
 
@@ -347,9 +347,9 @@ func (hb *HLSBroadcaster) ListenStatus() {
 			// 监听客户端离开消息
 			hb.RemoveLiveClient(clientId)
 			fmt.Printf("HLSBroadcaster.ListenStatus.RemoveLiveClient.clientId %s successful.", clientId)
-		case <-hb.BrokerCloseSig:
+		case <-hb.BroadcasterCloseSig:
 			// 直播被关闭
-			close(hb.BrokerCloseSig)
+			close(hb.BroadcasterCloseSig)
 		}
 
 	}

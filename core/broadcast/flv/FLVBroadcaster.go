@@ -204,7 +204,7 @@ func (fb *FLVBroadcaster) doFlvParse(body io.ReadCloser) {
 
 }
 func (fb *FLVBroadcaster) Broadcast2LiveClient(data []byte) {
-	//log.Println("FLVBroadcaster.Broadcast.BrokerKey:", fb.BrokerKey)
+	//log.Println("FLVBroadcaster.Broadcast.BroadcasterKey:", fb.BroadcasterKey)
 	if len(fb.clientMap) == 0 {
 		return
 	}
