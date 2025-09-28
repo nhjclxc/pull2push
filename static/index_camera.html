@@ -6,7 +6,7 @@
     <script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
 </head>
 <body>
-<video id="videoElement" controls width="640" height="360"></video>
+<video id="videoElement" autoplay muted playsinline controls width="640" height="360"></video>
 
 <script>
     if (flvjs.isSupported()) {
@@ -30,7 +30,25 @@
         });
         flvPlayer.attachMediaElement(videoElement);
         flvPlayer.load();
-        flvPlayer.play().catch(e => console.warn('play error', e));
+
+
+        // 自动播放
+        flvPlayer.play().catch(e => {
+            console.warn('自动播放失败，尝试静音后重播', e);
+            videoElement.muted = true;
+            flvPlayer.play().catch(e2 => {
+                console.warn('尝试静音后重播成功 ', e2);
+            });
+        });
+
+
+        // 检测到音频轨道后，取消静音
+        flvPlayer.on(flvjs.Events.MEDIA_INFO, (mediaInfo) => {
+            if (mediaInfo.hasAudio) {
+                console.log("检测到音频轨道，取消静音");
+                videoElement.muted = false;
+            }
+        });
     } else {
         alert('浏览器不支持 FLV.js 播放');
     }

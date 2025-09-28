@@ -11,4 +11,5 @@ RUN rm -f /etc/localtime && ln -s /usr/share/zoneinfo/Asia/Shanghai /etc/localti
 COPY ./bin/pull2push /app/pull2push
 RUN chmod 777 /app/pull2push
 
-CMD ["/app/pull2push", "serve", "-c", "/app/config.yaml"]
+CMD ["/app/pull2push", "pull2push", "-c", "/app/config.yaml"]
+# pull2push -c ./config/config.yaml
